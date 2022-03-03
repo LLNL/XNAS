@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""
+MIT License
+
+Copyright (c) 2022, Lawrence Livermore National Security, LLC
+Written by Zachariah Carmichael et al.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+Wraps deephyper CLI script
+"""
+
+if __name__ == '__main__':
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+
+    import os
+
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+    os.environ['NO_GCE_CHECK'] = 'true'
+    os.environ['TF_XLA_FLAGS'] = '--tf_xla_cpu_global_jit'
+
+    import sys
+
+    try:
+        import ray  # noqa
+    except ImportError:
+        class _dummy:  # noqa
+            def __getattr__(self, value):
+                raise RuntimeError(f'Ray is not installed, cannot '
+                                   f'access attribute "{value}"!')
+
+
+        ray = _dummy()
+        sys.modules['ray'] = ray  # noqa
+    else:
+        # we have ray, now let's check what cluster we are on
+        import socket
+        import re
+
+        # NOTE: If you have a similar issue, add your domain to the regex
+        if re.match(r'^flash\d+\.llnl\.gov$', socket.getfqdn()):
+            # https://github.com/ray-project/ray/issues/6573
+
+            def address_to_ip(ip):
+                split = ip.split(':')
+                new_ip = socket.gethostbyname(socket.gethostname())
+                if len(split) == 2:
+                    new_ip += ':' + split[1]
+                return new_ip
+
+
+            ray._private.services.address_to_ip = address_to_ip
+
+    from deephyper.evaluator.evaluate import Evaluator
+
+
+    def clip_value(self, y):
+        """Score clipping in evaluator. Monkey patched for XNAS objectives."""
+        is_dict = isinstance(y, dict)
+        yy = y['score'] if is_dict else y
+        yy = min(max(yy, self.min_val), self.max_val)
+        if is_dict:
+            y = y.copy()
+            y['score'] = yy
+            yy = y
+        return yy
+
+
+    Evaluator.clip_value = clip_value
+
+    from deephyper.core.cli.cli import main
+    # rename HPS_SEARCHES --> NAS_SEARCHES
+    from deephyper.core.cli.nas import HPS_SEARCHES as NAS_SEARCHES
+
+    from xnas.nas_deephyper.regevo_xnas import RegularizedEvolutionXNAS
+    from xnas.nas_deephyper.nsga_ii import NSGAII
+
+    # add our XNAS search methods to the NAS menu
+    NAS_SEARCHES['regevo_xnas'] = RegularizedEvolutionXNAS
+    NAS_SEARCHES['regevo-xnas'] = RegularizedEvolutionXNAS
+
+    NAS_SEARCHES['nsgaii'] = NSGAII
+    NAS_SEARCHES['nsga2'] = NSGAII
+
+    main()

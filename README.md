@@ -22,7 +22,7 @@ Paper abstract:
 > architectures that perform within tolerable error.
 
 # Installation
-Python 3.6 or newer is required. Python 3.8 is recommended as it was used in all experiments.
+Python 3.6 or newer is required. Python 3.8 is highly recommended as it was used in all experiments.
 For a minimally sufficient environment to run the code:
 
 ```shell
@@ -62,7 +62,7 @@ SINGLE_OBJECTIVE=false
 EXPLAINABILITY_TYPE=activations
 CPUS_PER_TASK=16
 GPUS_PER_TASK=1
-./deephyper_xnas nas "nsga2" \
+PYTHONPATH="$PWD" ./deephyper_xnas nas "nsga2" \
     --problem "experiments.$TASK.problem.Problem" \
     --run "xnas.nas_deephyper.nas_run.run" \
     --multiobjective-explainability "true" \
